@@ -1,178 +1,168 @@
-# LinkPulse MVP
+# LinkPulse
 
-A MERN-based URL shortener and link lifecycle platform. This is the current MVP integration candidate. Some roadmap features remain unimplemented; see `FINAL_IMPLEMENTATION_REVIEW.md` for validation results and known limits.
+**LinkPulse is a URL shortener that helps users create, share, and track short links.** It includes a dashboard for managing links and viewing click analytics.
 
-## Deployment target
+## Live Demo
 
-- **Frontend:** Render Static Site (React + Vite)
-- **API + redirect engine:** Render Web Service (Node.js + Express)
-- **Click processing:** Render Background Worker
-- **Queue:** Render Key Value (Redis-compatible; new instances use Valkey)
-- **Database:** MongoDB Atlas online — MongoDB is not hosted in Docker or on Render
+- **Website:** https://frontend-a0rk.onrender.com/
+- **Backend health:** https://linkpulse-api-turh.onrender.com/health
+- **Short-link format:** `https://linkpulse-api-turh.onrender.com/r/<short-code>`
 
-A `render.yaml` Blueprint is included to define the Render services. The Atlas cluster must be created separately because it is an external managed database.
+The website and API are deployed on Render. The backend health link should return JSON containing `"status":"ok"`.
 
-## Implemented in this increment
+## Problem Statement
 
-- Registration, login, JWT authentication, and backend role checks (`user` / `admin`). Public registration always creates a regular user.
-- Link create/list/detail/update/archive APIs with generated or custom aliases, ownership checks, expiry, click caps, password hashes, campaigns/tags, device destinations, and basic URL/domain safety validation.
-- IntentLock starter: approved destination versions; a cross-domain change from a regular user is held pending; admin review approves/rejects it. The redirect engine only uses the currently approved destination stored on the link.
-- Public redirects at `/r/:code`, password form/unlock, status/expiry/click-cap checks, current blocklist check, and device-target selection.
-- Click counter + click event + outbox record committed in one MongoDB transaction before an HTTP 302 response.
-- Redis Streams dispatcher/worker, idempotent event classification, basic rule-based bot filtering, and retry by reclaiming pending Redis messages.
-- Durable outbox recovery: unprocessed events that were published to Redis but remain unprocessed are re-published after a delay. Duplicate delivery is expected and handled idempotently. This is important when using an ephemeral queue plan.
-- Campaigns and tags with edit/archive and link associations; saved QR inventory with scan attribution; Growth-only CSV bulk import with per-row errors; per-link and account-wide analytics; activity history; admin blocklist, link disable, user management, and destination-version review.
-- React dashboard connected to real API responses: overview, link management, campaigns, tags, QR codes, bulk import, activity, and admin controls.
+Long URLs are difficult to share and manage. It can also be hard to understand how people interact with shared links, which campaigns perform well, or whether traffic may come from automated bots.
 
-## Not complete yet / known MVP limits
+## Solution
 
-- Link-in-bio pages are not implemented in this increment.
-- Folder organization is a text label on a link, not yet a dedicated shared Folder collection.
-- Country-level enrichment is not implemented; country remains empty unless a geolocation provider is added.
-- Bot detection is rule-based and heuristic. It cannot prove a click was human; unknown and suspected traffic should remain visible.
-- Unique visitors are estimates based on a first-party visitor cookie. They are not verified identities.
-- JWT is stored in browser localStorage in this MVP frontend. For production, prefer secure HttpOnly cookies or another reviewed session approach, add CSRF protection where applicable, and apply a security review.
-- Audit logging is best-effort in this increment; production governance should make critical audit writes durable and observable.
-- Render's free Key Value service has no disk persistence. The MongoDB outbox remains the source of truth and the worker re-publishes stale unprocessed events, but use a persistent Key Value plan for stronger queue durability at higher traffic.
+LinkPulse converts long URLs into short, shareable links and provides a central dashboard to organize links and review recorded redirect activity. It also classifies traffic using basic rules to separate likely-human clicks from known bots and uncertain traffic.
 
-## Deploy online with MongoDB Atlas + Render
+## Features
 
-### A. Create MongoDB Atlas
+- Create, copy, view, edit, and archive short links.
+- Use generated or custom short codes.
+- Set link expiry dates and click limits.
+- Organize links with campaigns and tags.
+- Generate QR codes for links.
+- View dashboard metrics and per-link analytics, including click activity and device/browser breakdowns when data is available and the account plan allows it.
+- Classify clicks using rule-based bot detection.
+- Sign up and sign in using account authentication.
+- Compare Free, Pro, and Growth subscription plans.
+- Demo subscription checkout for testing plan activation. **It is simulated and does not collect payment details or charge money.**
 
-1. Create an Atlas project and a cluster. Choose a region close to your Render region; this setup uses Singapore as the default Render region.
-2. Create a **database user** for LinkPulse. Use a strong, unique password; this is separate from LinkPulse website user accounts.
-3. In Atlas **Network Access**, allow the outbound IP ranges shown in Render for both `linkpulse-api` and `linkpulse-worker`. Keep the list as restricted as practical. Do not leave `0.0.0.0/0` enabled for production.
-4. In Atlas, choose **Connect → Drivers → Node.js** and copy the connection string. It should resemble:
+## Tech Stack
 
-   ```text
-   mongodb+srv://<db_user>:<url_encoded_password>@<cluster-host>/linkpulse?retryWrites=true&w=majority
-   ```
+- **Frontend:** React, Vite, JavaScript, CSS, Recharts
+- **Backend:** Node.js, Express.js
+- **Database:** MongoDB Atlas with Mongoose
+- **Authentication:** JSON Web Tokens (JWT), bcryptjs
+- **Traffic processing:** MongoDB outbox processor with rule-based classification; a separate worker/queue is optional for scaling
+- **Deployment:** Render (Static Site + Web Service)
 
-   Replace all placeholders. URL-encode special characters in the database password. Do not commit the real connection string.
+## Local Setup
 
-### B. Deploy the Render Blueprint
+### Requirements
 
-1. Push the **contents** of this `LinkPulse_MVP` folder to a GitHub repository (so `render.yaml` is in the repository root).
-2. In Render, choose **New → Blueprint**, connect the repository, and apply `render.yaml`.
-3. When prompted, provide `MONGODB_URI` using the Atlas application connection string.
-4. The Blueprint defines the API web service, frontend static site, background worker and a Redis-compatible Render Key Value queue. The API/worker use Atlas; no MongoDB container is deployed. Service environment variables reference Render-assigned public URLs rather than assuming a fixed API hostname.
-5. Ensure the API and worker run in the same Render region as the Key Value service. The provided Blueprint sets Singapore.
-6. Wait for all services to deploy. Render service URLs are connected through `RENDER_EXTERNAL_URL` references in the Blueprint, so the frontend API base URL, backend CORS origin and short-link base URL stay aligned with the service URLs.
+- Node.js 22 or newer
+- A MongoDB Atlas database that supports transactions
+- Git
 
-### Public redirect domain
-
-The deployed API URL is already public, so redirects are immediately shareable as `https://<your-api>.onrender.com/r/<code>`. For a branded public short-link domain, add a custom domain such as `go.yourdomain.com` to the **API** service in Render, point the required DNS record at Render, then set both `PUBLIC_BASE_URL` on the API service and `VITE_PUBLIC_BASE_URL` on the frontend service to `https://go.yourdomain.com`. Redeploy both services after changing these values. The dashboard copy button and generated QR codes will then use that public domain.
-
-Official setup references:
-- Render + MongoDB Atlas: https://render.com/docs/connect-to-mongodb-atlas
-- Render Blueprints: https://render.com/docs/blueprint-spec
-- Render Key Value: https://render.com/docs/key-value
-
-### C. Bootstrap the first administrator
-
-The public registration endpoint intentionally cannot create an administrator. After Atlas is configured to allow your development machine's IP, create a local `backend/.env` with the Atlas `MONGODB_URI` plus:
-
-```env
-BOOTSTRAP_ADMIN_EMAIL=admin@example.com
-BOOTSTRAP_ADMIN_PASSWORD=a-long-unique-password-at-least-12-chars
-BOOTSTRAP_ADMIN_NAME=LinkPulse Admin
-```
-
-Then run from the `backend` directory:
+### 1. Download the project
 
 ```bash
-npm install
-npm run seed:admin
+git clone https://github.com/divyanshuand6-art/99999.git
+cd 99999
 ```
 
-Unset/remove the bootstrap password immediately afterward. Use the seeded account to sign in to the deployed site. Change the example email/password to credentials you control.
-
-### D. Verify the deployment
-
-1. Open `https://<your-linkpulse-api>.onrender.com/health`. It should return JSON with `"status":"ok"`.
-2. Open the frontend's Render URL and register a regular user.
-3. Create a link, open its `/r/<code>` URL, and confirm `clickCount` and the click event update.
-4. Wait for worker classification, then refresh analytics. Reports should use persisted events, not hardcoded sample metrics.
-5. Test expired, disabled, password-protected, over-limit, and bot-signature requests.
-6. Check API and worker logs in Render if Atlas connection, Redis connection, or worker processing fails.
-
-## Local development without Docker
-
-MongoDB uses the same online Atlas cluster during local development. Add your current development IP to Atlas Network Access before connecting from your computer. Docker and a local Redis server are **not required**: the bundled worker can process the durable MongoDB outbox directly.
-
-Copy `backend/.env.example` to `backend/.env`, then set:
-
-```env
-MONGODB_URI=mongodb+srv://<db_user>:<url_encoded_password>@<cluster-host>/linkpulse?retryWrites=true&w=majority
-USE_REDIS=false
-FRONTEND_ORIGIN=http://localhost:5173
-PUBLIC_BASE_URL=http://localhost:4000
-```
-
-Use real Atlas credentials only in your local `.env` or Render environment variables, never in source control.
-
-Install backend dependencies and run the API:
+### 2. Configure and start the backend
 
 ```bash
 cd backend
 npm install
+```
+
+Copy `backend/.env.example` to `backend/.env` and fill in the required values. On Windows PowerShell, run:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+At minimum, configure these values in `backend/.env`:
+
+```env
+NODE_ENV=development
+PORT=4000
+MONGODB_URI=mongodb+srv://<db-user>:<password>@<cluster-host>/linkpulse?retryWrites=true&w=majority
+JWT_SECRET=replace-with-a-long-random-secret
+VISITOR_HASH_SECRET=replace-with-another-long-random-secret
+FRONTEND_ORIGIN=http://localhost:5173
+PUBLIC_BASE_URL=http://localhost:4000
+INLINE_CLICK_PROCESSOR=true
+USE_REDIS=false
+MOCK_BILLING_ENABLED=true
+```
+
+Replace the MongoDB placeholders and secret examples with your own values. Keep `.env` private and never commit it to GitHub.
+
+Start the backend:
+
+```bash
 npm run dev
 ```
 
-In a second terminal, start the no-Docker local worker:
+The API runs at `http://localhost:4000`. Test it at `http://localhost:4000/health`.
 
-```bash
-cd backend
-npm run worker
-```
+### 3. Configure and start the frontend
 
-In a third terminal:
+Open a **second terminal** from the project root:
 
 ```bash
 cd frontend
 npm install
+```
+
+Copy `frontend/.env.example` to `frontend/.env`. On Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Set these values in `frontend/.env`:
+
+```env
+VITE_API_BASE_URL=http://localhost:4000
+VITE_PUBLIC_BASE_URL=http://localhost:4000
+```
+
+Start the frontend:
+
+```bash
 npm run dev
 ```
 
-Open `http://localhost:5173`; API health is at `http://localhost:4000/health`.
+Open the local URL printed by Vite, usually `http://localhost:5173`.
 
-## Requirements
+## Free Render Deployment
 
-- Node.js 20+ (Render Blueprint requests Node 22)
-- MongoDB Atlas cluster supporting multi-document transactions (Atlas replica-set-backed clusters support this workflow)
-- No Docker or Redis installation is needed for local development. For production, Render Key Value/Valkey is used for the asynchronous queue.
+The deployed app uses two Render services:
 
-## Final review and test status
+1. **Static Site:** React frontend.
+2. **Web Service:** Node.js/Express API and short-link redirects.
 
-See [`FINAL_IMPLEMENTATION_REVIEW.md`](./FINAL_IMPLEMENTATION_REVIEW.md) for the exact feature matrix, 10 passing backend tests, syntax checks, and live-deployment checks that remain. The code has not yet been live-tested against the deployment owner’s Atlas database or Render environment.
+MongoDB Atlas hosts the database. The API can process click events from MongoDB without a paid background worker, making this setup suitable for a small demo on Render Free.
 
-## CSV format
+Set the following environment variables in Render:
 
-Required: `originalUrl` (or `url`). Optional: `code` (or `alias`), `title`, `expiresAt` (ISO date), `clickLimit`.
+**Backend (`linkpulse-api`)**
 
-```csv
-originalUrl,code,title,expiresAt,clickLimit
-https://example.com/sale,sale26,Sale landing page,,1000
-```
+- `MONGODB_URI` — your MongoDB Atlas connection string
+- `JWT_SECRET` — a long, random secret
+- `VISITOR_HASH_SECRET` — a separate long, random secret
+- `FRONTEND_ORIGIN=https://frontend-a0rk.onrender.com`
+- `PUBLIC_BASE_URL=https://linkpulse-api-turh.onrender.com`
+- `INLINE_CLICK_PROCESSOR=true`
+- `MOCK_BILLING_ENABLED=true` — enables the demo checkout only
+- `TRUST_PROXY=true`
 
-Maximum 500 data rows and 1 MB per upload in this MVP.
+**Frontend (`linkpulse-frontend`)**
 
-## API overview
+- `VITE_API_BASE_URL=https://linkpulse-api-turh.onrender.com`
+- `VITE_PUBLIC_BASE_URL=https://linkpulse-api-turh.onrender.com`
 
-- `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`
-- `GET/POST /api/links`, `POST /api/links/validate`, `GET/PATCH/DELETE /api/links/:id`
-- `GET/POST/PATCH /api/campaigns`, `GET/POST/DELETE /api/tags`
-- `GET /api/analytics/overview`, `GET /api/analytics/campaigns`, `GET /api/analytics/links/:id`
-- `POST /api/links/:id/qr`, `GET /api/links/:id/qr`, `GET /api/qr/:id/image`
-- `POST /api/links/bulk-import`
-- `GET /api/activity`
-- Admin: `/api/admin/users`, `/api/admin/blocked-domains`, `/api/admin/link-versions`, `/api/admin/links/:id/disable`
-- Public redirects: `GET /r/:code`, `POST /r/:code/unlock`
+After changing frontend environment variables, rebuild/redeploy the Static Site. Never add database credentials or secret values to frontend variables.
 
-## Architecture note
+## Subscription and Payment Note
 
-MongoDB Atlas is the source of truth. A successful redirect transaction increments `links.clickCount` and inserts `clickEvents` and `outboxEvents` before returning HTTP 302. The background worker publishes pending outbox events to Redis Streams, classifies traffic and updates event classification. If Redis is unavailable or its ephemeral queue is restarted, the pending/stale MongoDB outbox remains recoverable and unprocessed published events are re-queued after the recovery delay.
+Free, Pro, and Growth are application plan tiers. The current checkout is a **mock/demo payment flow**: it simulates a successful checkout and activates a plan for testing, but no money is taken. It is not suitable for collecting real payments. A real subscription product needs a payment provider integration, verified payment webhooks, and production billing/security checks.
 
-## Reference-matched frontend and subscription integration
+## Notes
 
-See [`BACKEND-FRONTEND-INTEGRATION.md`](./BACKEND-FRONTEND-INTEGRATION.md) for the API contracts, subscription limits, mock checkout behavior, and local setup for the updated frontend.
+- Analytics depend on click events being recorded and processed. The activity graph shows **qualified clicks**, so known bots and uncertain traffic may not appear as human-qualified clicks.
+- Country analytics may be empty because a geolocation provider is not configured.
+- Render Free services can sleep when inactive; the first request after idle time may take longer.
+- Do not use demo checkout to sell real subscriptions.
+
+## License
+
+Add a license file if you intend to publish this project for reuse. Otherwise, all rights remain with the project owner.

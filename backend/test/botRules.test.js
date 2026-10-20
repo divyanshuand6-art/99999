@@ -15,7 +15,7 @@ test('missing user agent stays unknown instead of being counted as human', () =>
   assert.equal(result.isQualifiedClick, false);
 });
 
-test('ordinary browser signature waits for worker classification', () => {
+test('ordinary browser signature waits for event classification', () => {
   const result = classifyPreliminary('Mozilla/5.0 Chrome/125.0.0.0 Safari/537.36');
   assert.equal(result.botClass, 'unknown');
   assert.equal(result.isQualifiedClick, false);

@@ -3,14 +3,6 @@
 # The default service slugs below provide the frontend/API origins. If Render
 # assigns different onrender.com URLs, update these two values in service settings.
 services:
-  - type: keyvalue
-    name: linkpulse-queue
-    region: singapore
-    plan: free
-    maxmemoryPolicy: noeviction
-    persistenceMode: off
-    ipAllowList: []
-
   - type: web
     name: linkpulse-api
     runtime: node
@@ -43,30 +35,11 @@ services:
           envVarKey: RENDER_EXTERNAL_URL
       - key: TRUST_PROXY
         value: "true"
-
-  - type: worker
-    name: linkpulse-worker
-    runtime: node
-    region: singapore
-    plan: free
-    rootDir: backend
-    buildCommand: npm install
-    startCommand: npm run worker
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: NODE_VERSION
-        value: "22"
-      - key: MONGODB_URI
-        fromService:
-          type: web
-          name: linkpulse-api
-          envVarKey: MONGODB_URI
-      - key: REDIS_URL
-        fromService:
-          type: keyvalue
-          name: linkpulse-queue
-          property: connectionString
+      - key: INLINE_CLICK_PROCESSOR
+        value: "true"
+      # Demo-only checkout; no real payment is collected. Set false to disable.
+      - key: MOCK_BILLING_ENABLED
+        value: "true"
 
   - type: web
     name: linkpulse-frontend

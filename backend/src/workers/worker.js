@@ -1,9 +1,8 @@
 import 'dotenv/config';
-import mongoose from 'mongoose';
 import { createClient } from 'redis';
 import { connectDatabase } from '../config/db.js';
-import { ClickEvent, OutboxEvent } from '../models/index.js';
-import { classifyEvent } from '../services/botRules.js';
+import { OutboxEvent } from '../models/index.js';
+import { processEvent, processPendingOutboxBatch } from '../services/outboxProcessor.js';
 
 const STREAM = 'linkpulse:click-events';
 const GROUP = 'linkpulse-click-workers';
@@ -46,29 +45,8 @@ async function processMessage(message) {
   await redis.xAck(STREAM, GROUP, message.id);
 }
 
-async function processEvent(eventId) {
-  const event = await ClickEvent.findOne({ eventId }).select('+userAgent');
-  if (!event) throw new Error(`Click event not found for outbox event ${eventId}`);
-  if (event.botClass !== 'known_bot' && event.botClass !== 'suspected_automation' && !event.isQualifiedClick) {
-    const result = await classifyEvent(event, ClickEvent);
-    event.botClass = result.botClass;
-    event.isQualifiedClick = result.isQualifiedClick;
-    event.detectionReasons = result.detectionReasons;
-    await event.save();
-  }
-  await OutboxEvent.updateOne({ eventId }, { $set: { status: 'processed', processedAt: new Date(), lastError: '' } });
-}
-
 async function processMongoOutbox() {
-  const pending = await OutboxEvent.find({ status: { $in: ['pending', 'published'] } }).sort({ createdAt: 1 }).limit(50).lean();
-  for (const item of pending) {
-    try {
-      await processEvent(item.eventId);
-    } catch (err) {
-      await OutboxEvent.updateOne({ _id: item._id }, { $inc: { attempts: 1 }, $set: { lastError: String(err.message).slice(0, 500) } });
-      console.error('Local outbox processing failed; event remains retryable:', item.eventId, err.message);
-    }
-  }
+  await processPendingOutboxBatch({ limit: 50 });
 }
 
 async function ensureConsumerGroup() {

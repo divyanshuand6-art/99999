@@ -5,6 +5,8 @@ import { rateLimit } from 'express-rate-limit';
 import { z } from 'zod';
 import { AuditLog, ClickEvent, Link, PaymentTransaction, User } from '../models/index.js';
 import { authenticate } from '../middleware/auth.js';
+import { mockBillingEnabled } from '../services/mockBillingConfig.js';
+export { mockBillingEnabled } from '../services/mockBillingConfig.js';
 
 const router = Router();
 router.use(authenticate);
@@ -18,13 +20,6 @@ const PAID_PLANS = {
   pro: { name: 'Pro', amountPaise: 19900 },
   growth: { name: 'Growth', amountPaise: 59900 }
 };
-
-// The mock gateway is intentionally unavailable in production unless explicitly enabled.
-function mockBillingEnabled() {
-  if (process.env.MOCK_BILLING_ENABLED === 'true') return true;
-  if (process.env.MOCK_BILLING_ENABLED === 'false') return false;
-  return process.env.NODE_ENV !== 'production';
-}
 
 const checkoutLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
