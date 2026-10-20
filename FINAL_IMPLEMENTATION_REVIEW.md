@@ -1,0 +1,54 @@
+# LinkPulse final implementation review
+
+This package is the current integration candidate for local verification and Render deployment. It is not being represented as live-tested against your MongoDB Atlas account or an actual Render deployment.
+
+## Implemented in this package
+
+- Authentication: registration/login/current-user routes, password hashing, JWT authentication, regular registration role, admin bootstrap script, disabled-account check, and expiry of demo subscriptions on authenticated requests.
+- Link lifecycle: create/list/detail/update/archive, generated/custom codes, ownership checks, destination URL validation, expiry, click limits, blank password input behavior on the frontend, and public-URL validation before create/QR/import mutations.
+- Subscription guards: Free 10 links/month and 1,000 tracked events/month; Pro 500 links/month and 25,000 tracked events/month; Growth 2,000 links/month and unlimited tracked events. Backend enforcement is in place in addition to frontend prompts.
+- Password protection: Pro/Growth only; no generated or pre-filled password. A Free user clicking the field is directed to Plans & billing; the API also rejects attempts to set a password on the Free plan.
+- Short URLs: local development can use localhost. Production requires a valid public HTTPS URL and rejects localhost, private/internal hosts, credentials, or paths. Render environment references use the services' assigned public URLs.
+- Redirect handling: validates link status, expiry, click limits, password, destination policy/blocklist and device-target rules before redirecting. Successful redirects increment the durable all-time `Link.clickCount` and commit a ClickEvent plus outbox record before returning 302 whenever the monthly analytics allowance permits.
+- Analytics: account/dashboard overview and per-link analytics endpoint. All-time redirects are distinct from saved/processed click events. Includes daily qualified clicks and traffic classifications; device/browser/referrer/country breakdowns depend on the plan and available data.
+- Event processing: durable MongoDB outbox and Redis Streams worker flow, idempotent event handling, rule-based bot classification. Bot classifications are heuristic, not proof that a person or bot generated a click.
+- IntentLock: domain changes by regular users can be held for admin review. Regular users cannot grant themselves an allowed-domain list through create/update payloads.
+- Campaigns and tags: create/list/edit/archive campaigns, campaign analytics and link filtering; create/list/edit/delete tags and associate tags with links.
+- QR codes: saved QR inventory, download/copy actions, per-QR scan stats, and scan attribution via `?qr=`. Password-unlock form now retains QR attribution through the unlock POST.
+- Bulk import: Growth-only frontend and backend gate, row validation/errors, public URL results, 500-row and 1 MB limits.
+- Activity/admin: audit entries for supported actions, admin-only blocklist and platform/user controls, and sensitive destination-change reviews.
+- Render: Blueprint defines API, static frontend, worker and Key Value. API/frontend/CORS/public-short-url settings use Render-assigned public URLs rather than relying on a hardcoded localhost hostname.
+
+## Analytics terminology
+
+- **All-time redirects** come from `Link.clickCount` and increment for every successful redirect that passes link safety/status/password/expiry/click-cap checks.
+- **Tracked clicks** are ClickEvent records used for detailed analytics. Free and Pro plan quotas stop further event tracking after their monthly allowance, but they do not stop otherwise-valid visitors from being redirected. Growth has no monthly tracked-click cap.
+- **Qualified clicks / unique visitors / bot classes** are derived from asynchronously processed events. They can lag behind a just-completed redirect until the worker processes its outbox/queue message.
+- Country data is not enriched by a geo-IP provider in this increment and can therefore be empty. Browser/referrer data depends on event availability and plan entitlement.
+
+## Validation completed
+
+- `npm --prefix backend test`: 10 tests passed, 0 failed (bot rules, plan-entitlement helper, and production public-URL helper).
+- `npm --prefix backend run check`: passed.
+- `node --check` across `backend/src` and `backend/test`: passed.
+- Frontend `App.jsx` parsed/transpiled using the installed TypeScript parser: passed.
+- `frontend/src/styles.css` parsed using PostCSS: passed.
+- Render Blueprint references use the supported `fromService` pattern for Render-provided `RENDER_EXTERNAL_URL` values.
+
+## Not verified in this environment
+
+- No live login/register test against MongoDB Atlas.
+- No live transactional redirect test against the actual Atlas cluster.
+- No Redis/worker end-to-end event test.
+- No full Vite production build or browser visual QA; frontend dependencies were not available from the npm registry in this environment.
+- Render Blueprint has not been deployed/validated by Render itself.
+- No real billing provider is integrated. Mock checkout is local-demo-only by default and is disabled in production. Do not expose a publicly enabled always-success mock checkout for a commercial launch.
+
+## Before the first production deploy
+
+1. Keep `backend/.env` and any local `.env` files out of Git. Commit only `.env.example` placeholders.
+2. Create/configure MongoDB Atlas and provide `MONGODB_URI` through Render's secret environment-variable settings. Configure Atlas network access for your Render services; do not leave broad access enabled for production.
+3. Deploy from this repository root so `render.yaml` is found. Review the generated service names and environment links during Render's Blueprint setup.
+4. Keep `MOCK_BILLING_ENABLED` unset/false in production. The mock gateway never charges money and can give away paid entitlements if intentionally enabled on a public site.
+5. After deployment, test `/health`, register/login, create a short link, open it in a private browser/second device, verify `Link.clickCount`, wait for the worker, then verify per-link and overall analytics. Also test password-protected, expired, disabled, click-limited, QR-attributed, and disallowed-domain redirects.
+6. Seed the first admin separately with `npm run seed:admin` and temporary `BOOTSTRAP_ADMIN_*` values. Remove the bootstrap password variables after seeding.
